@@ -28,6 +28,30 @@ defmodule Trento.Infrastructure.Jobs do
 
   require Logger
 
+  alias Trento.Infrastructure.Jobs.{
+    ChecksExecutionScheduler,
+    ClustersChecksExecutionJob,
+    HostsChecksExecutionJob
+  }
+
+  @doc """
+  Schedules the first run of the checks execution jobs, which then schedule their next run
+  themselves, see `Trento.Infrastructure.Jobs.ChecksExecutionScheduler`. A job that is already
+  scheduled is left untouched. A failure is logged, and the jobs are scheduled again at the
+  next boot.
+  """
+  @spec schedule_checks_executions() :: :ok
+  def schedule_checks_executions do
+    for worker <- [ClustersChecksExecutionJob, HostsChecksExecutionJob] do
+      ChecksExecutionScheduler.schedule_initial(worker)
+    end
+
+    :ok
+  rescue
+    error ->
+      Logger.error("Could not schedule the checks executions: " <> Exception.message(error))
+  end
+
   @spec oban_config() :: keyword()
   def oban_config do
     :trento

@@ -131,6 +131,7 @@ config :trento, Trento.Heartbeats,
 config :trento, deregistration_debounce: :timer.seconds(0)
 
 config :trento, Oban,
+  lifeline: Oban.Lifeline,
   repo: Trento.Repo,
   queues: [default: 10],
   pruner: [max_age: {7, :days}],
@@ -139,11 +140,8 @@ config :trento, Oban,
   # single entry. See Trento.Infrastructure.Jobs.
   cron: [
     crontab: [
-      # Runs every five minutes
-      clusters_checks_execution:
-        {"*/5 * * * *", Trento.Infrastructure.Jobs.ClustersChecksExecutionJob},
-      # Runs every five minutes
-      hosts_checks_execution: {"*/5 * * * *", Trento.Infrastructure.Jobs.HostsChecksExecutionJob},
+      # The checks executions are not cron entries: they schedule themselves following the
+      # checks frequency, see Trento.Infrastructure.Jobs.ChecksExecutionScheduler
       # Runs every 12 hours. At 00:00 and 12:00
       software_updates_discovery:
         {"0 */12 * * *", Trento.Infrastructure.Jobs.SoftwareUpdatesDiscoveryJob},

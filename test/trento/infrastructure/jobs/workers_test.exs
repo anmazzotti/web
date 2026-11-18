@@ -92,6 +92,91 @@ defmodule Trento.Infrastructure.Jobs.WorkersTest do
     end
   end
 
+  describe "checks execution scheduling" do
+    @checks_workers [ClustersChecksExecutionJob, HostsChecksExecutionJob]
+
+    test "should schedule the first run after the checks frequency" do
+      before_scheduling = DateTime.utc_now()
+
+      assert :ok = Trento.Infrastructure.Jobs.schedule_checks_executions()
+
+      for worker <- @checks_workers do
+        assert [%Oban.Job{state: "scheduled", scheduled_at: scheduled_at}] =
+                 all_enqueued(worker: worker)
+
+        assert DateTime.diff(scheduled_at, before_scheduling) in 299..301
+      end
+    end
+
+    test "should not schedule the first run when one is already pending" do
+      for worker <- @checks_workers, state <- ~w(available executing scheduled) do
+        insert_run(worker, state)
+
+        assert :already_scheduled =
+                 Trento.Infrastructure.Jobs.ChecksExecutionScheduler.schedule_initial(worker)
+      end
+
+      assert Trento.Repo.aggregate(Oban.Job, :count) == 2
+    end
+
+    test "should schedule the next run from the scheduled time of the current one" do
+      scheduled_at = DateTime.add(DateTime.utc_now(), 60)
+
+      for worker <- @checks_workers do
+        stub(Trento.Infrastructure.Messaging.Adapter.Mock, :publish, fn _, _, _ -> :ok end)
+
+        assert :ok = perform_job(worker, %{}, scheduled_at: scheduled_at, attempt: 1)
+
+        assert [%Oban.Job{scheduled_at: next}] = all_enqueued(worker: worker)
+        assert DateTime.diff(next, scheduled_at) == 300
+      end
+    end
+
+    test "should schedule the next run when the current one fails" do
+      scheduled_at = DateTime.add(DateTime.utc_now(), 60)
+
+      for worker <- @checks_workers do
+        stub(Trento.Infrastructure.Messaging.Adapter.Mock, :publish, fn _, _, _ ->
+          raise "boom"
+        end)
+
+        insert_list(2, :host, selected_checks: ["check"])
+        insert(:cluster, type: ClusterType.hana_scale_up(), selected_checks: ["check"])
+
+        try do
+          perform_job(worker, %{}, scheduled_at: scheduled_at, attempt: 1)
+        rescue
+          _ -> :ok
+        end
+
+        assert [%Oban.Job{scheduled_at: next}] = all_enqueued(worker: worker)
+        assert DateTime.diff(next, scheduled_at) == 300
+      end
+    end
+
+    test "should schedule the next run from now after a downtime" do
+      scheduled_at = DateTime.add(DateTime.utc_now(), -3600)
+
+      assert :ok =
+               perform_job(HostsChecksExecutionJob, %{}, scheduled_at: scheduled_at, attempt: 1)
+
+      assert [%Oban.Job{scheduled_at: next}] = all_enqueued(worker: HostsChecksExecutionJob)
+      assert DateTime.diff(next, DateTime.utc_now()) in 299..300
+    end
+
+    test "should not request the executions when the checks are disabled" do
+      insert(:checks_frequency_settings, enabled: false)
+      insert_list(2, :host, selected_checks: ["check"])
+
+      scheduled_at = DateTime.add(DateTime.utc_now(), 60)
+
+      assert :ok =
+               perform_job(HostsChecksExecutionJob, %{}, scheduled_at: scheduled_at, attempt: 1)
+
+      assert [%Oban.Job{}] = all_enqueued(worker: HostsChecksExecutionJob)
+    end
+  end
+
   describe "software updates discovery" do
     test "should complete when the software updates settings are not configured" do
       log = capture_log(fn -> assert :ok = perform_job(SoftwareUpdatesDiscoveryJob, %{}) end)

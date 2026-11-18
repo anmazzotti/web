@@ -3,15 +3,16 @@
 
 defmodule Trento.Infrastructure.Jobs.HostsChecksExecutionJob do
   @moduledoc """
-  Requests a checks execution for every registered host with selected checks.
+  Requests a checks execution for every registered host with selected checks, and schedules
+  the next run, see `Trento.Infrastructure.Jobs.ChecksExecutionScheduler`.
   """
 
   use Oban.Worker, max_attempts: 1, unique: [period: :infinity, states: :incomplete]
 
-  @impl Oban.Worker
-  def perform(%Oban.Job{}) do
-    Trento.Hosts.request_hosts_checks_execution()
+  alias Trento.Infrastructure.Jobs.ChecksExecutionScheduler
 
-    :ok
+  @impl Oban.Worker
+  def perform(%Oban.Job{} = job) do
+    ChecksExecutionScheduler.run(__MODULE__, job, &Trento.Hosts.request_hosts_checks_execution/0)
   end
 end

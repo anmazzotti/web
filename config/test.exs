@@ -133,6 +133,8 @@ config :trento, Trento.Infrastructure.Messaging.Adapter.AMQP,
 
 config :trento, Oban, testing: :manual
 
+config :trento, :schedule_checks_executions, false
+
 config :trento, Trento.Infrastructure.Commanded.EventHandlers.StreamRollUpEventHandler,
   max_stream_version: 10
 

@@ -43,6 +43,7 @@ defmodule Trento.Application do
         # Start a worker by calling: Trento.Worker.start_link(arg)
         # {Trento.Worker, arg}
       ] ++
+        checks_executions_scheduling() ++
         Application.get_env(:trento, :extra_children, [])
 
     Jobs.attach_logger()
@@ -51,6 +52,13 @@ defmodule Trento.Application do
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: Trento.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  # Runs once Oban is up, and is disabled in the test environment
+  defp checks_executions_scheduling do
+    if Application.get_env(:trento, :schedule_checks_executions, true),
+      do: [{Task, &Jobs.schedule_checks_executions/0}],
+      else: []
   end
 
   # Tell Phoenix to update the endpoint configuration
